@@ -1,26 +1,37 @@
 import streamlit as st
 from PIL import Image
+import joblib
+import os
+import pandas as pd
+import numpy as np
+from io import StringIO
 
-# Page config
+# ---------------------------
+# Page config & header
+# ---------------------------
 st.set_page_config(
     page_title="🎵 Song Popularity Dashboard",
     layout="wide"
 )
 
-# Centered Title
 st.markdown("<h1 style='text-align: center; color: #4A4A4A;'>🎵 Song Popularity Prediction Dashboard</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center;'>An end-to-end Data Science project on music analytics</p>", unsafe_allow_html=True)
 st.write("")
 
+# ---------------------------
+# Optional banner image (optional - ensure folder 'images' exists)
+# ---------------------------
+banner_path = "images/banner.jpg"
+if os.path.exists(banner_path):
+    image = Image.open(banner_path)
+    resized_image = image.resize((1000, 400))
+    st.image(resized_image)
+else:
+    st.info("Banner image not found at 'images/banner.jpg'. (Optional)")
 
-# Optional: Banner image at the top
-image = Image.open("images/banner.jpg")
-resized_image = image.resize((1000, 400))  # Adjust dimensions as needed (width, height)
-
-st.image(resized_image)
-
-
-# Author section
+# ---------------------------
+# Author & Project description
+# ---------------------------
 with st.container():
     st.markdown("### 👤 Author")
     st.markdown("""
@@ -30,7 +41,6 @@ with st.container():
     - **Project Goal:** Showcase complete data science workflow from analysis to deployment.
     """)
 
-# Problem Statement
 st.markdown("---")
 st.markdown("### 🧩 Problem Statement")
 st.markdown("""
@@ -42,32 +52,133 @@ We aim to:
 - Help with playlist curation, cross-platform promotion, and artist scouting decisions.
 """)
 
-# Project Workflow
 st.markdown("---")
 st.markdown("### 🔍 Project Workflow")
 st.markdown("""
 We followed the complete data science lifecycle:
 
 1. **Understanding the Dataset**  
-   - Explored each feature, cleaned, and converted necessary columns.
-
 2. **EDA (Exploratory Data Analysis)**  
-   - Used graphs and charts to derive deep insights.
-   - Tackled questions relevant to marketing and A&R teams.
-
 3. **Model Building**  
-   - Trained multiple regression models: `Linear Regression`, `Random Forest`, and `XGBoost`.
-   - Compared performance using both raw and log-transformed data.
-
 4. **Evaluation**  
-   - Used metrics like MAE, MSE, R², and Cross-Validation scores.
-   - Chose the best performing model for deployment.
-
-5. **Deployment**  
-   - Built this frontend using **Streamlit**.
-   - Added prediction capability and summarized insights.
+5. **Deployment**
 """)
 
-# Final Message
 st.markdown("---")
 st.success("Use the sidebar to navigate through insights, model training, predictions, and final takeaways.")
+
+# ---------------------------
+# Load model
+# ---------------------------
+# NOTE: your file in the repo is named `model[1].pkl`
+MODEL_PATH = "model[1].pkl"  # change to "model.pkl" if you rename the file
+
+model = None
+if os.path.exists(MODEL_PATH):
+    try:
+        model = joblib.load(MODEL_PATH)
+        st.sidebar.success(f"Model loaded from `{MODEL_PATH}`")
+    except Exception as e:
+        st.sidebar.error(f"Failed to load model: {e}")
+else:
+    st.sidebar.warning(f"Model file not found at `{MODEL_PATH}`.\nIf your model is large, remove it from repo and load from Drive or use Git LFS.")
+
+# ---------------------------
+# Sidebar navigation
+# ---------------------------
+st.sidebar.title("Navigation")
+page = st.sidebar.radio("Go to", ["About", "Prediction", "Upload & Batch Predict", "Instructions"])
+
+# ---------------------------
+# About page
+# ---------------------------
+if page == "About":
+    st.header("Project Summary")
+    st.write("This dashboard shows the end-to-end pipeline and allows prediction using the trained model.")
+
+# ---------------------------
+# Prediction (single manual input)
+# ---------------------------
+elif page == "Prediction":
+    st.header("Single Prediction (Manual Input)")
+    st.markdown("""
+    Paste a **comma-separated** list of feature values matching the order you used during training.
+    Example: `0.12, 120.0, 0, 1, 0.53`  
+    (If you're not sure about feature order, use CSV upload instead.)
+    """)
+    user_input = st.text_area("Enter comma-separated features", value="")
+    if st.button("Predict (manual)"):
+        if model is None:
+            st.error("No model loaded. Ensure `model[1].pkl` is present or load model at runtime.")
+        else:
+            try:
+                # parse user input
+                arr = [float(x.strip()) for x in user_input.split(",") if x.strip() != ""]
+                X = np.array(arr).reshape(1, -1)
+                preds = model.predict(X)
+                st.write("✅ Prediction:", preds[0])
+            except Exception as e:
+                st.error(f"Could not predict: {e}\nCheck that you supplied the correct number and type of features.")
+
+# ---------------------------
+# Upload & Batch Predict (CSV)
+# ---------------------------
+elif page == "Upload & Batch Predict":
+    st.header("Batch Prediction via CSV")
+    st.markdown("Upload a CSV where each row is a sample and columns match the training features (no target column required).")
+    uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
+    if uploaded_file is not None:
+        try:
+            df = pd.read_csv(uploaded_file)
+            st.write("Preview of uploaded data (first 5 rows):")
+            st.dataframe(df.head())
+            if model is None:
+                st.error("No model loaded. Cannot run predictions.")
+            else:
+                if st.button("Run predictions on uploaded CSV"):
+                    try:
+                        preds = model.predict(df.values)
+                        out = df.copy()
+                        out["prediction"] = preds
+                        st.success("Predictions complete.")
+                        st.dataframe(out.head())
+                        # allow download
+                        csv = out.to_csv(index=False).encode("utf-8")
+                        st.download_button("Download results CSV", csv, "predictions.csv", "text/csv")
+                    except Exception as e:
+                        st.error(f"Prediction failed: {e}\nMake sure the CSV columns match the features and ordering used for training.")
+        except Exception as e:
+            st.error(f"Failed to read CSV: {e}")
+
+# ---------------------------
+# Instructions page
+# ---------------------------
+elif page == "Instructions":
+    st.header("How to use & deploy")
+    st.markdown("""
+    **Local run**
+    1. Create a virtual environment and install requirements:  
+       `pip install -r requirements.txt`  
+    2. Run app:  
+       `streamlit run app.py`
+    3. Make sure `model[1].pkl` is in the same folder or update `MODEL_PATH` variable above.
+    
+    **Rename model (recommended)**  
+    - If desired, rename `model[1].pkl` to `model.pkl` and update `MODEL_PATH = "model.pkl"`.
+
+    **If your model is too large for GitHub**  
+    - Upload to Google Drive and load at runtime (use `gdown`), or use Git LFS.
+    - Example snippet to download from Drive (add before joblib.load):
+    ```python
+    import gdown
+    url = "https://drive.google.com/uc?id=FILE_ID"
+    if not os.path.exists("model.pkl"):
+        gdown.download(url, "model.pkl", quiet=False)
+    model = joblib.load("model.pkl")
+    ```
+
+    **Deploy to Streamlit Cloud**  
+    1. Push this repo to GitHub.  
+    2. Go to https://share.streamlit.io and connect your GitHub repo.  
+    3. Provide the branch and path to `app.py`, then deploy.
+    """)
